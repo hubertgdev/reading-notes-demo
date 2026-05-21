@@ -1,6 +1,6 @@
-# my-app
+# Reading Notes
 
-> Replace this description with a short summary of what this project does.
+> A small React app for capturing and browsing notes about what you read.
 
 ## Stack
 

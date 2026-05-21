@@ -205,7 +205,6 @@ function reducer(state: AppState, action: Action): AppState {
       if (state.session.status !== 'running') return state
       const target = state.session.phrase[state.session.currentIndex]
       if (target == null) return state
-      if (state.session.lastResult === 'correct') return state
       const matchMode = resolveOctaveMatching(state.settings)
       const ok = checkAnswer(action.played, target, matchMode)
       const correct = ok ? state.session.correct + 1 : state.session.correct

@@ -186,7 +186,7 @@ function reducer(state: AppState, action: Action): AppState {
       }
     }
     case 'stopSession': {
-      return { ...state, session: { ...state.session, status: 'idle' } }
+      return { ...state, view: 'practice', session: { ...state.session, status: 'idle' } }
     }
     case 'nextPhrase': {
       const lastOfOld = state.session.phrase[state.session.phrase.length - 1] ?? null
@@ -216,6 +216,7 @@ function reducer(state: AppState, action: Action): AppState {
       const nextIndex = ok ? state.session.currentIndex + 1 : state.session.currentIndex
       return {
         ...state,
+        view: reachedTarget ? 'practice' : state.view,
         session: {
           ...state.session,
           currentIndex: nextIndex,
@@ -233,7 +234,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'tick': {
       if (state.session.status !== 'running') return state
       if (state.session.endsAt && action.now >= state.session.endsAt) {
-        return { ...state, session: { ...state.session, status: 'finished' } }
+        return { ...state, view: 'practice', session: { ...state.session, status: 'finished' } }
       }
       return state
     }

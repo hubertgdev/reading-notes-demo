@@ -1,28 +1,44 @@
-import { useMemo } from 'react'
 import { playNote, primeAudio } from '@/audio/synth'
 import { Piano } from '@/components/Piano'
 import { SessionControls } from '@/components/SessionControls'
 import { SettingsPanel } from '@/components/SettingsPanel'
 import { Staff } from '@/components/Staff'
-import { formatNoteName, formatNoteWithOctave } from '@/music/notation'
-import { spellMidiInKey } from '@/music/spell'
-import { AppProvider, useApp } from '@/state/AppContext'
+import { cn } from '@/lib/utils'
+import { AppProvider, type AppView, useApp } from '@/state/AppContext'
 
-function Inner() {
-  const { settings, session, range, matchMode, key, playKey } = useApp()
+function Tabs() {
+  const { view, setView } = useApp()
+  const tabs: Array<{ id: AppView; label: string }> = [
+    { id: 'practice', label: 'Practice' },
+    { id: 'settings', label: 'Settings' },
+  ]
+  return (
+    <nav className="flex gap-1 border-b border-stone-200">
+      {tabs.map((t) => {
+        const active = view === t.id
+        return (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setView(t.id)}
+            className={cn(
+              'rounded-t-md px-4 py-2 text-sm font-medium transition-colors',
+              active
+                ? 'border border-b-white border-stone-200 bg-white text-stone-900 -mb-px'
+                : 'text-stone-500 hover:text-stone-800',
+            )}
+            aria-current={active ? 'page' : undefined}
+          >
+            {t.label}
+          </button>
+        )
+      })}
+    </nav>
+  )
+}
 
-  const spelledNote = useMemo(() => {
-    if (session.currentMidi == null) return null
-    return spellMidiInKey(session.currentMidi, key)
-  }, [session.currentMidi, key])
-
-  const targetLabel = useMemo(() => {
-    if (!spelledNote) return null
-    return matchMode === 'pitch-class'
-      ? formatNoteName(spelledNote, settings.notationStyle)
-      : formatNoteWithOctave(spelledNote, settings.notationStyle)
-  }, [spelledNote, settings.notationStyle, matchMode])
-
+function PracticeView() {
+  const { settings, session, range, key, playKey } = useApp()
   const finished = session.status === 'finished'
   const isRunning = session.status === 'running'
 
@@ -30,56 +46,67 @@ function Inner() {
     session.correct + session.wrong > 0 ? Math.round((session.correct / (session.correct + session.wrong)) * 100) : null
 
   return (
+    <div className="space-y-4">
+      <SessionControls />
+
+      <div className="rounded-lg border border-stone-200 bg-stone-100 p-6">
+        <Staff
+          phrase={session.phrase}
+          keySignature={key}
+          currentIndex={session.currentIndex}
+          showCursor={settings.showCursor && isRunning}
+          feedback={session.lastResult}
+        />
+        {finished ? (
+          <div className="mt-3 text-center text-sm font-medium text-stone-700">
+            Session finished — {session.correct} correct, {session.wrong} wrong
+            {accuracy != null ? ` (${accuracy}%)` : ''}, best streak {session.bestStreak}
+          </div>
+        ) : !isRunning ? (
+          <div className="mt-3 text-center text-sm text-stone-400">
+            Press Start to begin. Read the notes on the staff and play them on the keyboard.
+          </div>
+        ) : null}
+      </div>
+
+      <Piano
+        lowMidi={range.lowMidi}
+        highMidi={range.highMidi}
+        onPlay={(midi) => {
+          primeAudio()
+          playKey(midi)
+        }}
+        lastPressedMidi={session.lastPressedMidi}
+        feedback={session.lastResult}
+      />
+    </div>
+  )
+}
+
+function SettingsView() {
+  return (
+    <div className="mx-auto max-w-3xl">
+      <SettingsPanel />
+    </div>
+  )
+}
+
+function Inner() {
+  const { view } = useApp()
+  return (
     <div className="min-h-screen bg-stone-50 text-stone-900">
       <div className="mx-auto max-w-6xl px-4 py-6">
-        <header className="mb-5 flex items-baseline justify-between">
+        <header className="mb-4 flex items-baseline justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Reading Notes</h1>
-            <p className="text-sm text-stone-500">
-              Practice reading music. Click the keyboard or play freely between rounds.
-            </p>
+            <p className="text-sm text-stone-500">Practice reading music — dictation, no spoilers.</p>
           </div>
           <span className="text-xs text-stone-400 font-mono">v{__APP_VERSION__}</span>
         </header>
 
-        <div className="grid gap-5 lg:grid-cols-[280px_1fr]">
-          <aside className="lg:sticky lg:top-4 lg:self-start">
-            <SettingsPanel />
-          </aside>
+        <Tabs />
 
-          <main className="space-y-4">
-            <SessionControls />
-
-            <div className="relative rounded-lg border border-stone-200 bg-stone-100 p-6">
-              <Staff note={spelledNote} keySignature={key.id} feedback={session.lastResult} />
-              <div className="mt-3 flex h-8 items-center justify-center text-lg font-semibold text-stone-700">
-                {isRunning && targetLabel ? (
-                  <span>
-                    Play: <span className="font-mono">{targetLabel}</span>
-                  </span>
-                ) : finished ? (
-                  <span>
-                    Session finished — {session.correct} correct, {session.wrong} wrong
-                    {accuracy != null ? ` (${accuracy}%)` : ''}, best streak {session.bestStreak}
-                  </span>
-                ) : (
-                  <span className="text-stone-400">Press Start to begin a session, or just play the keys.</span>
-                )}
-              </div>
-            </div>
-
-            <Piano
-              lowMidi={range.lowMidi}
-              highMidi={range.highMidi}
-              onPlay={(midi) => {
-                primeAudio()
-                playKey(midi)
-              }}
-              highlightMidi={isRunning ? session.currentMidi : null}
-              feedback={session.lastResult}
-            />
-          </main>
-        </div>
+        <div className="pt-5">{view === 'practice' ? <PracticeView /> : <SettingsView />}</div>
       </div>
     </div>
   )

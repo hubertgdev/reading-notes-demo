@@ -5,7 +5,7 @@ interface PianoProps {
   lowMidi: number
   highMidi: number
   onPlay: (midi: number) => void
-  highlightMidi?: number | null
+  lastPressedMidi?: number | null
   feedback?: 'correct' | 'wrong' | null
 }
 
@@ -34,7 +34,7 @@ function pcOfMidi(midi: number): number {
   return ((midi % 12) + 12) % 12
 }
 
-export function Piano({ lowMidi, highMidi, onPlay, highlightMidi, feedback }: PianoProps) {
+export function Piano({ lowMidi, highMidi, onPlay, lastPressedMidi, feedback }: PianoProps) {
   const { keys, totalWhite } = useMemo(() => {
     let lo = lowMidi
     let hi = highMidi
@@ -75,7 +75,7 @@ export function Piano({ lowMidi, highMidi, onPlay, highlightMidi, feedback }: Pi
           .filter((k) => !k.isBlack)
           .map((k) => {
             const x = k.whiteIndex * WHITE_KEY_WIDTH
-            const isHighlight = highlightMidi != null && k.midi === highlightMidi
+            const isHighlight = feedback != null && lastPressedMidi != null && k.midi === lastPressedMidi
             return (
               <g
                 key={k.midi}
@@ -112,7 +112,7 @@ export function Piano({ lowMidi, highMidi, onPlay, highlightMidi, feedback }: Pi
           .map((k) => {
             const xCenter = (k.whiteIndex + 1) * WHITE_KEY_WIDTH
             const x = xCenter - BLACK_KEY_WIDTH / 2
-            const isHighlight = highlightMidi != null && k.midi === highlightMidi
+            const isHighlight = feedback != null && lastPressedMidi != null && k.midi === lastPressedMidi
             return (
               <g
                 key={k.midi}

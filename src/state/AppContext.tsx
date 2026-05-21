@@ -7,6 +7,7 @@ import { getRangePreset, RANGE_PRESETS, type RangePreset } from '@/music/ranges'
 export type SessionMode = 'open' | 'fixed' | 'sprint'
 export type OctaveMatching = 'auto' | 'exact' | 'pitch-class'
 export type SessionStatus = 'idle' | 'running' | 'finished'
+export type AppView = 'practice' | 'settings'
 
 export interface Settings {
   rangePresetId: string
@@ -20,13 +21,17 @@ export interface Settings {
   fixedLength: number
   sprintSeconds: number
   soundEnabled: boolean
+  phraseLength: number
+  showCursor: boolean
 }
 
 export interface SessionState {
   status: SessionStatus
   mode: SessionMode
-  currentMidi: number | null
+  phrase: number[]
+  currentIndex: number
   previousMidi: number | null
+  lastPressedMidi: number | null
   correct: number
   wrong: number
   streak: number
@@ -46,15 +51,17 @@ interface ResolvedRange {
 interface AppState {
   settings: Settings
   session: SessionState
+  view: AppView
 }
 
 type Action =
   | { type: 'updateSettings'; patch: Partial<Settings> }
-  | { type: 'startSession' }
+  | { type: 'setView'; view: AppView }
+  | { type: 'startSession'; phrase: number[] }
   | { type: 'stopSession' }
   | { type: 'answer'; played: number }
   | { type: 'tick'; now: number }
-  | { type: 'nextNote'; midi: number }
+  | { type: 'nextPhrase'; phrase: number[] }
 
 const DEFAULT_SETTINGS: Settings = {
   rangePresetId: 'treble-ledger',
@@ -68,13 +75,17 @@ const DEFAULT_SETTINGS: Settings = {
   fixedLength: 20,
   sprintSeconds: 60,
   soundEnabled: true,
+  phraseLength: 4,
+  showCursor: true,
 }
 
 const DEFAULT_SESSION: SessionState = {
   status: 'idle',
   mode: 'open',
-  currentMidi: null,
+  phrase: [],
+  currentIndex: 0,
   previousMidi: null,
+  lastPressedMidi: null,
   correct: 0,
   wrong: 0,
   streak: 0,
@@ -85,7 +96,7 @@ const DEFAULT_SESSION: SessionState = {
   lastResult: null,
 }
 
-const STORAGE_KEY = 'reading-notes-settings/v1'
+const STORAGE_KEY = 'reading-notes-settings/v2'
 
 function loadSettings(): Settings {
   if (typeof window === 'undefined') return DEFAULT_SETTINGS
@@ -104,7 +115,7 @@ function saveSettings(settings: Settings): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
   } catch {
-    // ignore quota / privacy errors
+    // ignore
   }
 }
 
@@ -131,11 +142,32 @@ export function resolveKey(settings: Settings): KeySignatureInfo {
   return getKeySignature('C')
 }
 
+function generatePhrase(settings: Settings, previousMidi: number | null): number[] {
+  const range = resolveRange(settings)
+  const key = resolveKey(settings)
+  const out: number[] = []
+  let prev = previousMidi
+  for (let i = 0; i < settings.phraseLength; i++) {
+    const midi = pickRandomMidi({
+      lowMidi: range.lowMidi,
+      highMidi: range.highMidi,
+      mode: settings.accidentalMode,
+      key,
+      previousMidi: prev,
+    })
+    out.push(midi)
+    prev = midi
+  }
+  return out
+}
+
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'updateSettings': {
-      const next = { ...state.settings, ...action.patch }
-      return { ...state, settings: next }
+      return { ...state, settings: { ...state.settings, ...action.patch } }
+    }
+    case 'setView': {
+      return { ...state, view: action.view }
     }
     case 'startSession': {
       const mode = state.settings.sessionMode
@@ -146,6 +178,8 @@ function reducer(state: AppState, action: Action): AppState {
           ...DEFAULT_SESSION,
           status: 'running',
           mode,
+          phrase: action.phrase,
+          currentIndex: 0,
           startedAt: now,
           endsAt: mode === 'sprint' ? now + state.settings.sprintSeconds * 1000 : null,
         },
@@ -154,19 +188,22 @@ function reducer(state: AppState, action: Action): AppState {
     case 'stopSession': {
       return { ...state, session: { ...state.session, status: 'idle' } }
     }
-    case 'nextNote': {
+    case 'nextPhrase': {
+      const lastOfOld = state.session.phrase[state.session.phrase.length - 1] ?? null
       return {
         ...state,
         session: {
           ...state.session,
-          previousMidi: state.session.currentMidi,
-          currentMidi: action.midi,
+          phrase: action.phrase,
+          currentIndex: 0,
+          previousMidi: lastOfOld,
           lastResult: null,
         },
       }
     }
     case 'answer': {
-      const target = state.session.currentMidi
+      if (state.session.status !== 'running') return state
+      const target = state.session.phrase[state.session.currentIndex]
       if (target == null) return state
       if (state.session.lastResult === 'correct') return state
       const matchMode = resolveOctaveMatching(state.settings)
@@ -177,10 +214,13 @@ function reducer(state: AppState, action: Action): AppState {
       const bestStreak = Math.max(state.session.bestStreak, streak)
       const total = state.session.total + (ok ? 1 : 0)
       const reachedTarget = state.settings.sessionMode === 'fixed' && total >= state.settings.fixedLength
+      const nextIndex = ok ? state.session.currentIndex + 1 : state.session.currentIndex
       return {
         ...state,
         session: {
           ...state.session,
+          currentIndex: nextIndex,
+          lastPressedMidi: action.played,
           correct,
           wrong,
           streak,
@@ -206,15 +246,16 @@ function reducer(state: AppState, action: Action): AppState {
 interface AppContextValue {
   settings: Settings
   session: SessionState
+  view: AppView
   range: ResolvedRange
   matchMode: 'exact' | 'pitch-class'
   key: KeySignatureInfo
   rangePresets: RangePreset[]
   updateSettings: (patch: Partial<Settings>) => void
+  setView: (view: AppView) => void
   startSession: () => void
   stopSession: () => void
   playKey: (midi: number) => void
-  nextNote: () => void
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -228,6 +269,7 @@ export function AppProvider({ children, onPlay }: ProviderProps): ReactNode {
   const [state, dispatch] = useReducer(reducer, undefined, () => ({
     settings: loadSettings(),
     session: DEFAULT_SESSION,
+    view: 'practice' as AppView,
   }))
 
   const settingsRef = useRef(state.settings)
@@ -241,9 +283,7 @@ export function AppProvider({ children, onPlay }: ProviderProps): ReactNode {
 
   useEffect(() => {
     if (state.session.status !== 'running' || !state.session.endsAt) return
-    const id = window.setInterval(() => {
-      dispatch({ type: 'tick', now: Date.now() })
-    }, 250)
+    const id = window.setInterval(() => dispatch({ type: 'tick', now: Date.now() }), 250)
     return () => window.clearInterval(id)
   }, [state.session.status, state.session.endsAt])
 
@@ -251,41 +291,28 @@ export function AppProvider({ children, onPlay }: ProviderProps): ReactNode {
   const matchMode = useMemo(() => resolveOctaveMatching(state.settings), [state.settings])
   const key = useMemo(() => resolveKey(state.settings), [state.settings])
 
-  const drawNextNote = useCallback(() => {
-    const s = settingsRef.current
-    const sess = sessionRef.current
-    const r = resolveRange(s)
-    const k = resolveKey(s)
-    const midi = pickRandomMidi({
-      lowMidi: r.lowMidi,
-      highMidi: r.highMidi,
-      mode: s.accidentalMode,
-      key: k,
-      previousMidi: sess.currentMidi,
-    })
-    dispatch({ type: 'nextNote', midi })
-  }, [])
-
   useEffect(() => {
-    if (state.session.status === 'running' && state.session.currentMidi == null) {
-      drawNextNote()
-    }
-  }, [state.session.status, state.session.currentMidi, drawNextNote])
-
-  useEffect(() => {
-    if (state.session.lastResult !== 'correct') return
+    if (state.session.status !== 'running') return
+    if (state.session.currentIndex < state.session.phrase.length) return
     const timer = window.setTimeout(() => {
-      if (sessionRef.current.status === 'running') drawNextNote()
-    }, 450)
+      if (sessionRef.current.status !== 'running') return
+      const next = generatePhrase(settingsRef.current, sessionRef.current.previousMidi)
+      dispatch({ type: 'nextPhrase', phrase: next })
+    }, 600)
     return () => window.clearTimeout(timer)
-  }, [state.session.lastResult, drawNextNote])
+  }, [state.session.status, state.session.currentIndex, state.session.phrase.length])
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     dispatch({ type: 'updateSettings', patch })
   }, [])
 
+  const setView = useCallback((view: AppView) => {
+    dispatch({ type: 'setView', view })
+  }, [])
+
   const startSession = useCallback(() => {
-    dispatch({ type: 'startSession' })
+    const phrase = generatePhrase(settingsRef.current, sessionRef.current.previousMidi)
+    dispatch({ type: 'startSession', phrase })
   }, [])
 
   const stopSession = useCallback(() => {
@@ -295,29 +322,27 @@ export function AppProvider({ children, onPlay }: ProviderProps): ReactNode {
   const playKey = useCallback(
     (midi: number) => {
       if (settingsRef.current.soundEnabled && onPlay) onPlay(midi)
-      if (sessionRef.current.status === 'running' && sessionRef.current.currentMidi != null) {
+      const sess = sessionRef.current
+      if (sess.status === 'running' && sess.currentIndex < sess.phrase.length) {
         dispatch({ type: 'answer', played: midi })
       }
     },
     [onPlay],
   )
 
-  const nextNote = useCallback(() => {
-    drawNextNote()
-  }, [drawNextNote])
-
   const value: AppContextValue = {
     settings: state.settings,
     session: state.session,
+    view: state.view,
     range,
     matchMode,
     key,
     rangePresets: RANGE_PRESETS,
     updateSettings,
+    setView,
     startSession,
     stopSession,
     playKey,
-    nextNote,
   }
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

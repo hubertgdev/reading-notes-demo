@@ -12,14 +12,11 @@ function midiLabel(midi: number): string {
 }
 
 export function SettingsPanel() {
-  const { settings, range, matchMode, updateSettings, rangePresets, session } = useApp()
-  const disabled = session.status === 'running'
+  const { settings, range, matchMode, updateSettings, rangePresets } = useApp()
 
   return (
     <div className="space-y-5 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">Settings</h2>
-
-      <fieldset className="space-y-2" disabled={disabled}>
+      <fieldset className="space-y-2">
         <legend className="text-xs font-medium text-stone-600">Range</legend>
         <select
           className="w-full rounded border border-stone-300 bg-white px-2 py-1.5 text-sm"
@@ -71,7 +68,7 @@ export function SettingsPanel() {
         )}
       </fieldset>
 
-      <fieldset className="space-y-2" disabled={disabled}>
+      <fieldset className="space-y-2">
         <legend className="text-xs font-medium text-stone-600">Accidentals</legend>
         <div className="space-y-1.5">
           {(
@@ -109,7 +106,7 @@ export function SettingsPanel() {
         ) : null}
       </fieldset>
 
-      <fieldset className="space-y-2" disabled={disabled}>
+      <fieldset className="space-y-2">
         <legend className="text-xs font-medium text-stone-600">Notation</legend>
         <div className="flex gap-3 text-sm">
           {(
@@ -132,7 +129,7 @@ export function SettingsPanel() {
         </div>
       </fieldset>
 
-      <fieldset className="space-y-2" disabled={disabled}>
+      <fieldset className="space-y-2">
         <legend className="text-xs font-medium text-stone-600">
           Octave matching{' '}
           <span className="font-normal text-stone-400">
@@ -161,7 +158,34 @@ export function SettingsPanel() {
         </div>
       </fieldset>
 
-      <fieldset className="space-y-2" disabled={disabled}>
+      <fieldset className="space-y-2">
+        <legend className="text-xs font-medium text-stone-600">Phrase</legend>
+        <label className="block text-xs">
+          <span className="mb-1 flex justify-between">
+            <span>Notes shown per phrase</span>
+            <span className="font-mono">{settings.phraseLength}</span>
+          </span>
+          <input
+            type="range"
+            min={1}
+            max={16}
+            step={1}
+            value={settings.phraseLength}
+            onChange={(e) => updateSettings({ phraseLength: Number.parseInt(e.target.value, 10) })}
+            className="w-full"
+          />
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={settings.showCursor}
+            onChange={(e) => updateSettings({ showCursor: e.target.checked })}
+          />
+          <span>Show cursor on current note</span>
+        </label>
+      </fieldset>
+
+      <fieldset className="space-y-2">
         <legend className="text-xs font-medium text-stone-600">Session</legend>
         <div className="space-y-1.5">
           {(
